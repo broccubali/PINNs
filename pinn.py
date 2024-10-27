@@ -84,7 +84,7 @@ class PhysicsInformedNN:
                  dest='./',
                  activation='elu',
                  resnet=False,
-                 optimizer=keras.optimizers.Adam(lr=5e-4),
+                 optimizer=keras.optimizers.Adam(learning_rate=5e-4),
                  norm_in=None,
                  norm_out=None,
                  norm_out_type='z-score',
