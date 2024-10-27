@@ -107,7 +107,7 @@ class PhysicsInformedNN:
         self.activation  = activation
 
         # Input definition and normalization
-        coords = keras.layers.Input(self.din, name='coords')
+        coords = keras.layers.Input((self.din,), name='coords')
 
         if norm_in is not None:
             x1     = norm_in[0]
