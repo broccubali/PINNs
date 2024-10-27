@@ -607,8 +607,10 @@ def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
             end_idx = (ba + 1) * flag_size
             
             # Ensure we don't go out of bounds
+            if start_idx >= len(fi):
+                continue  # Skip if starting index is out of bounds
             if end_idx > len(fi):
-                end_idx = len(fi)
+                end_idx = len(fi)  # Cap end index to avoid going out of bounds
             
             sl = slice(start_idx, end_idx)
             idxs.append(fi[sl])
@@ -619,6 +621,7 @@ def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
     idxs = idxs[idxs < total_samples]
 
     return X[idxs], Y[idxs], ld[idxs], lf[idxs]
+
 
 
 # def get_mini_batch(X, Y, ld, lf, ba, batch_size, flag_idxs, random=True):
