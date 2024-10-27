@@ -592,16 +592,34 @@ def get_tr_k(grads):
 
 def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
     idxs = []
+    total_samples = len(X)
+    
     for fi in flag_idxs:
         if random:
-            sl = np.random.choice(fi, len(fi)//batches)
+            # Randomly sample without replacement, ensuring we don't ask for more samples than available
+            num_samples = min(len(fi) // batches, len(fi))
+            sl = np.random.choice(fi, num_samples, replace=False)
             idxs.append(sl)
         else:
-            flag_size = len(fi)//batches
-            sl = slice(ba*flag_size, (ba+1)*flag_size)
+            # Calculate the appropriate slice for non-random batching
+            flag_size = len(fi) // batches
+            start_idx = ba * flag_size
+            end_idx = (ba + 1) * flag_size
+            
+            # Ensure we don't go out of bounds
+            if end_idx > len(fi):
+                end_idx = len(fi)
+            
+            sl = slice(start_idx, end_idx)
             idxs.append(fi[sl])
+    
     idxs = np.concatenate(idxs)
+    
+    # Ensure indices are within the dataset size to avoid IndexError
+    idxs = idxs[idxs < total_samples]
+
     return X[idxs], Y[idxs], ld[idxs], lf[idxs]
+
 
 # def get_mini_batch(X, Y, ld, lf, ba, batch_size, flag_idxs, random=True):
 #     ''' New separted version for this problem '''
