@@ -11,10 +11,10 @@ Original references:
 
 import numpy as np
 import tensorflow as tf
-from   tensorflow import keras
+from tensorflow import keras
 import time
 
-tf.keras.backend.set_floatx('float32')
+tf.keras.backend.set_floatx("float32")
 
 
 class PhysicsInformedNN:
@@ -37,7 +37,7 @@ class PhysicsInformedNN:
     training).
 
     A few definitions before proceeding to the initialization parameters:
-    
+
     din   = input dims
     dout  = output dims
 
@@ -78,45 +78,51 @@ class PhysicsInformedNN:
             If True, it checks if a checkpoint exists in dest. If a checkpoint
             exists it restores the modelfrom there. Default is True.
     """
+
     # Initialize the class
-    def __init__(self,
-                 layers,
-                 dest='./',
-                 activation='elu',
-                 resnet=False,
-                 optimizer=keras.optimizers.Adam(learning_rate=5e-4),
-                 norm_in=None,
-                 norm_out=None,
-                 norm_out_type='z-score',
-                 inverse=None,
-                 restore=True):
+    def __init__(
+        self,
+        layers,
+        dest="./",
+        activation="elu",
+        resnet=False,
+        optimizer=keras.optimizers.Adam(learning_rate=5e-4),
+        norm_in=None,
+        norm_out=None,
+        norm_out_type="z-score",
+        inverse=None,
+        restore=True,
+    ):
 
         # Numbers and dimensions
-        self.din    = layers[0]
-        self.dout   = layers[-1]
+        self.din = layers[0]
+        self.dout = layers[-1]
         self.layers = layers
 
         # Extras
-        self.dest        = dest
-        self.resnet      = resnet
-        self.inverse     = inverse
-        self.norm_in     = norm_in
-        self.norm_out    = norm_out
-        self.optimizer   = optimizer
-        self.restore     = restore
-        self.activation  = activation
+        self.dest = dest
+        self.resnet = resnet
+        self.inverse = inverse
+        self.norm_in = norm_in
+        self.norm_out = norm_out
+        self.optimizer = optimizer
+        self.restore = restore
+        self.activation = activation
 
         # Input definition and normalization
-        coords = keras.layers.Input((self.din,), name='coords')
+        coords = keras.layers.Input(shape=(self.din,), name="coords")
 
         if norm_in is not None:
-            x1     = norm_in[0]
-            x2     = norm_in[1]
+            x1 = norm_in[0]
+            x2 = norm_in[1]
+
             def norm(x):
-                return 2*(x-x1)/(x2-x1) - 1
+                return 2 * (x - x1) / (x2 - x1) - 1
+
         else:
-            x1   =  1.0
-            x2   = -1.0
+            x1 = 1.0
+            x2 = -1.0
+
             def norm(x):
                 return x
 
@@ -130,134 +136,147 @@ class PhysicsInformedNN:
         if norm_out is not None:
             y1 = norm_out[0]
             y2 = norm_out[1]
-            if norm_out_type=='z-score':
+            if norm_out_type == "z-score":
+
                 def out_norm(x):
-                    return y2*x + y1
-            elif norm_out_type=='min-max':
+                    return y2 * x + y1
+
+            elif norm_out_type == "min-max":
+
                 def out_norm(x):
-                    return 0.5*(x+1)*(y2-y1) + y1
+                    return 0.5 * (x + 1) * (y2 - y1) + y1
+
         else:
-            y1   = 0.0
-            y2   = 1.0
+            y1 = 0.0
+            y2 = 1.0
+
             def out_norm(x):
                 return x
-        fields  = keras.layers.Lambda(out_norm)(fields)
+
+        fields = keras.layers.Lambda(out_norm)(fields)
 
         # Generate inverse parts
         if self.inverse is not None:
             inv_outputs = self._generate_inverse(norm_coords)
         else:
-            inv_outputs = [keras.layers.Dense(1, name='dummy')(norm_coords)]
+            inv_outputs = [keras.layers.Dense(1, name="dummy")(norm_coords)]
         outputs = [fields] + inv_outputs
 
         # Create model
         model = keras.Model(inputs=coords, outputs=outputs)
         self.model = model
-        self.num_trainable_vars = np.sum([np.prod(v.shape)
-                                          for v in self.model.trainable_variables])
+        self.num_trainable_vars = np.sum(
+            [np.prod(v.shape) for v in self.model.trainable_variables]
+        )
         self.num_trainable_vars = tf.cast(self.num_trainable_vars, tf.float32)
 
         # Parameters for dynamic balance
-        self.bal_phys = tf.Variable(1.0, name='bal_phys')
+        self.bal_phys = tf.Variable(1.0, name="bal_phys")
 
         # Create save checkpoints / Load if existing previous
-        self.ckpt    = tf.train.Checkpoint(step=tf.Variable(0),
-                                           model=self.model,
-                                           bal_phys=self.bal_phys,
-                                           optimizer=self.optimizer)
-        self.manager = tf.train.CheckpointManager(self.ckpt,
-                                                  self.dest + '/ckpt',
-                                                  max_to_keep=5)
+        self.ckpt = tf.train.Checkpoint(
+            step=tf.Variable(0),
+            model=self.model,
+            bal_phys=self.bal_phys,
+            optimizer=self.optimizer,
+        )
+        self.manager = tf.train.CheckpointManager(
+            self.ckpt, self.dest + "/ckpt", max_to_keep=5
+        )
         if self.restore:
             self.ckpt.restore(self.manager.latest_checkpoint)
 
-    def _generate_network(self, coords, layers, activation, resnet, mask=None, out_name='fields'):
-        ''' Generate network '''
-        din   = layers[0]
-        dout  = layers[-1]
-        depth = len(layers)-2
+    def _generate_network(
+        self, coords, layers, activation, resnet, mask=None, out_name="fields"
+    ):
+        """Generate network"""
+        din = layers[0]
+        dout = layers[-1]
+        depth = len(layers) - 2
         width = layers[1]
         if din != self.din:
-            raise ValueError('The input dimensions of all networks must be equal!')
+            raise ValueError("The input dimensions of all networks must be equal!")
 
         act_dict = self._generate_activation(activation)
 
         # Apply mask if provided
         if mask is not None:
-            coords = keras.layers.Lambda(lambda x: mask*x)(coords)
+            coords = keras.layers.Lambda(lambda x: mask * x)(coords)
 
         # Hidden layers
         hidden = coords
         first_layer = True
         for ii in range(depth):
-            new_layer = keras.layers.Dense(width,
-                                           kernel_initializer=act_dict['kinit'])(hidden)
+            new_layer = keras.layers.Dense(width, kernel_initializer=act_dict["kinit"])(
+                hidden
+            )
 
             # Update params depending on arch choices
-            if act_dict['type'] == 'siren':
+            if act_dict["type"] == "siren":
                 if first_layer:
-                    omega0 = act_dict['first_omega0']
+                    omega0 = act_dict["first_omega0"]
                 else:
-                    omega0 = act_dict['hidden_omega0']
-                act_dict['kinit'] = tf.keras.initializers.RandomUniform(-tf.sqrt(6.0/width)/omega0,
-                                                                         tf.sqrt(6.0/width)/omega0)
-                act_dict['act_fn'] = SirenAct(omega0=omega0)
+                    omega0 = act_dict["hidden_omega0"]
+                act_dict["kinit"] = tf.keras.initializers.RandomUniform(
+                    -tf.sqrt(6.0 / width) / omega0, tf.sqrt(6.0 / width) / omega0
+                )
+                act_dict["act_fn"] = SirenAct(omega0=omega0)
 
             # Apply activation function
-            new_layer   = act_dict['act_fn'](new_layer)
+            new_layer = act_dict["act_fn"](new_layer)
 
             if resnet and not first_layer:
-                aux_layer = keras.layers.Dense(width,
-                                               kernel_initializer=act_dict['kinit'])(new_layer)
-                aux_layer = act_dict['act_fn'](aux_layer)
+                aux_layer = keras.layers.Dense(
+                    width, kernel_initializer=act_dict["kinit"]
+                )(new_layer)
+                aux_layer = act_dict["act_fn"](aux_layer)
 
-                hidden = 0.5*(hidden + aux_layer)
+                hidden = 0.5 * (hidden + aux_layer)
             else:
                 hidden = new_layer
 
             first_layer = False
 
         # Output definition
-        fields = keras.layers.Dense(dout,
-                                    kernel_initializer=act_dict['kinit'],
-                                    name=out_name)(hidden)
+        fields = keras.layers.Dense(
+            dout, kernel_initializer=act_dict["kinit"], name=out_name
+        )(hidden)
 
         return fields
 
     def _generate_activation(self, activation):
-        ''' Generate dictionary with activation function properties '''
+        """Generate dictionary with activation function properties"""
         act_dict = {}
 
         # Check type
         if type(activation) is str:
-            act_dict['type'] = activation
+            act_dict["type"] = activation
         elif isinstance(activation, dict):
-            act_dict['type'] = activation['type']
+            act_dict["type"] = activation["type"]
 
         # Load default values
-        if act_dict['type'] == 'tanh':
+        if act_dict["type"] == "tanh":
             act_fn = keras.activations.tanh
-            kinit  = 'glorot_normal'
+            kinit = "glorot_normal"
 
-        elif act_dict['type'] == 'relu':
+        elif act_dict["type"] == "relu":
             act_fn = keras.activations.relu
 
-        elif act_dict['type'] == 'elu':
+        elif act_dict["type"] == "elu":
             act_fn = keras.activations.elu
-            kinit  = 'glorot_normal'
+            kinit = "glorot_normal"
 
-        elif act_dict['type'] == 'siren':
+        elif act_dict["type"] == "siren":
             act_fn = SirenAct()
-            kinit  = tf.keras.initializers.RandomUniform(-1.0/self.din,
-                                                          1.0/self.din)
-            act_dict['first_omega0']  = 30.0
-            act_dict['hidden_omega0'] = 30.0
+            kinit = tf.keras.initializers.RandomUniform(-1.0 / self.din, 1.0 / self.din)
+            act_dict["first_omega0"] = 30.0
+            act_dict["hidden_omega0"] = 30.0
 
         else:
             raise ValueError(f"Activation type '{act_dict['type']}' not implemented")
 
-        act_dict['act_fn'] = act_fn
-        act_dict['kinit']  = kinit
+        act_dict["act_fn"] = act_fn
+        act_dict["kinit"] = kinit
 
         # Look for new values
         if isinstance(activation, dict):
@@ -286,55 +305,58 @@ class PhysicsInformedNN:
 
         # Iterate through equation parameters
         for ii, inv in enumerate(self.inverse):
-            name = f'inv-{ii}'
+            name = f"inv-{ii}"
 
             # Inverse parameter is a constant
-            if   inv['type'] == 'const':
-                cte = keras.layers.Lambda(lambda x: 0*x)(coords)
-                ini = keras.initializers.Constant(value=inv['value'])
-                out = keras.layers.Dense(1,
-                                         bias_initializer=ini,
-                                         name=name,
-                                         use_bias=True)(cte)
+            if inv["type"] == "const":
+                cte = keras.layers.Lambda(lambda x: 0 * x)(coords)
+                ini = keras.initializers.Constant(value=inv["value"])
+                out = keras.layers.Dense(
+                    1, bias_initializer=ini, name=name, use_bias=True
+                )(cte)
 
             # Inverse parameter is a field
-            elif inv['type'] == 'func':
-                if 'activation' not in inv:
-                    inv['activation'] = self.activation
-                if 'resnet' not in inv:
-                    inv['resnet'] = self.resnet
-                if 'mask' not in inv:
-                    inv['mask'] = None
-                out = self._generate_network(coords,
-                                             inv['layers'],
-                                             inv['activation'],
-                                             inv['resnet'],
-                                             mask=inv['mask'],
-                                             out_name=name)
+            elif inv["type"] == "func":
+                if "activation" not in inv:
+                    inv["activation"] = self.activation
+                if "resnet" not in inv:
+                    inv["resnet"] = self.resnet
+                if "mask" not in inv:
+                    inv["mask"] = None
+                out = self._generate_network(
+                    coords,
+                    inv["layers"],
+                    inv["activation"],
+                    inv["resnet"],
+                    mask=inv["mask"],
+                    out_name=name,
+                )
 
             # Append inverse
             inv_outputs.append(out)
 
         return inv_outputs
 
-    def train(self,
-              x_data,
-              y_data,
-              pde,
-              epochs,
-              batch_size,
-              eq_params=None,
-              lambda_data=1.0,
-              lambda_phys=1.0,
-              alpha=0.0,
-              flags=None,
-              rnd_order_training=True,
-              verbose=False,
-              print_freq=1,
-              valid_freq=0,
-              save_freq=1,
-              timer=False,
-              data_mask=None):
+    def train(
+        self,
+        x_data,
+        y_data,
+        pde,
+        epochs,
+        batch_size,
+        eq_params=None,
+        lambda_data=1.0,
+        lambda_phys=1.0,
+        alpha=0.0,
+        flags=None,
+        rnd_order_training=True,
+        verbose=False,
+        print_freq=1,
+        valid_freq=0,
+        save_freq=1,
+        timer=False,
+        data_mask=None,
+    ):
         """
         Train function
 
@@ -413,110 +435,119 @@ class PhysicsInformedNN:
         # Expand flags
         if flags is None:
             flags = [1 for _ in range(len_data)]
-        flags     = np.array(flags)
-        flag_idxs = [np.where(flags==f)[0] for f in np.unique(flags)]
+        flags = np.array(flags)
+        flag_idxs = [np.where(flags == f)[0] for f in np.unique(flags)]
 
         num_flags = len(flag_idxs)
         if num_flags > batches:
             batches = num_flags
-            batch_size = len_data//num_flags
+            batch_size = len_data // num_flags
 
         # Cast balance
-        bal_phys = tf.constant(self.bal_phys.numpy(), dtype='float32')
+        bal_phys = tf.constant(self.bal_phys.numpy(), dtype="float32")
 
         # Run epochs
-        ep0     = int(self.ckpt.step)
-        for ep in range(ep0, ep0+epochs):
+        ep0 = int(self.ckpt.step)
+        for ep in range(ep0, ep0 + epochs):
             for ba in range(batches):
 
                 # Create batches and cast to TF objects
-                (x_batch,
-                 y_batch,
-                 l_data,
-                 l_phys) = get_mini_batch(x_data,
-                                          y_data,
-                                          lambda_data,
-                                          lambda_phys,
-                                          ba,
-                                          batch_size,
-                                          flag_idxs,
-                                          random=rnd_order_training)
+                (x_batch, y_batch, l_data, l_phys) = get_mini_batch(
+                    x_data,
+                    y_data,
+                    lambda_data,
+                    lambda_phys,
+                    ba,
+                    batch_size,
+                    flag_idxs,
+                    random=rnd_order_training,
+                )
                 x_batch = tf.convert_to_tensor(x_batch)
                 y_batch = tf.convert_to_tensor(y_batch)
-                l_data  = tf.constant(l_data, dtype='float32')
-                l_phys  = tf.constant(l_phys, dtype='float32')
-                ba_counter  = tf.constant(ba)
+                l_data = tf.constant(l_data, dtype="float32")
+                l_phys = tf.constant(l_phys, dtype="float32")
+                ba_counter = tf.constant(ba)
 
                 if timer:
                     t0 = time.time()
-                (loss_data,
-                 loss_phys,
-                 inv_outputs,
-                 bal_phys) = self._training_step(x_batch,
-                                                 y_batch,
-                                                 pde,
-                                                 eq_params,
-                                                 l_data,
-                                                 l_phys,
-                                                 data_mask,
-                                                 bal_phys,
-                                                 alpha,
-                                                 ba_counter)
+                (loss_data, loss_phys, inv_outputs, bal_phys) = self._training_step(
+                    x_batch,
+                    y_batch,
+                    pde,
+                    eq_params,
+                    l_data,
+                    l_phys,
+                    data_mask,
+                    bal_phys,
+                    alpha,
+                    ba_counter,
+                )
                 if timer:
-                    print("Time per batch:", time.time()-t0)
-                    if ba>10:
+                    print("Time per batch:", time.time() - t0)
+                    if ba > 10:
                         timer = False
 
-
             # Print status
-            if ep%print_freq==0:
-                self._print_status(ep,
-                                  loss_data,
-                                  loss_phys,
-                                  inv_outputs,
-                                  alpha,
-                                  verbose=verbose)
+            if ep % print_freq == 0:
+                self._print_status(
+                    ep, loss_data, loss_phys, inv_outputs, alpha, verbose=verbose
+                )
 
             # Perform validation check
-            if valid_freq and ep%valid_freq==0:
+            if valid_freq and ep % valid_freq == 0:
                 self.validation(ep)
 
             # Save progress
             self.ckpt.step.assign_add(1)
             self.ckpt.bal_phys.assign(bal_phys.numpy())
-            if ep%save_freq==0:
+            if ep % save_freq == 0:
                 self.manager.save()
+        return loss_data, loss_phys, inv_outputs, alpha
 
     @tf.function
-    def _training_step(self, x_batch, y_batch,
-                      pde, eq_params, lambda_data, lambda_phys,
-                      data_mask, bal_phys, alpha, ba):
+    def _training_step(
+        self,
+        x_batch,
+        y_batch,
+        pde,
+        eq_params,
+        lambda_data,
+        lambda_phys,
+        data_mask,
+        bal_phys,
+        alpha,
+        ba,
+    ):
         with tf.GradientTape(persistent=True) as tape:
             # Data part
             output = self.model(x_batch, training=True)
             y_pred = output[0]
-            aux = [tf.reduce_mean(
-                   lambda_data*tf.square(y_batch[:,ii]-y_pred[:,ii]))
-                   for ii in range(self.dout)
-                   if data_mask[ii]]
+            aux = [
+                tf.reduce_mean(lambda_data * tf.square(y_batch[:, 0] - y_pred[:, 0]))
+                for ii in range(self.dout)
+                if data_mask[ii]
+            ]
             loss_data = tf.add_n(aux)
 
             # Physics part
             equations = pde(self.model, x_batch, eq_params)
-            loss_eqs  = [tf.reduce_mean(
-                         lambda_phys*tf.square(eq))
-                         for eq in equations]
+            loss_eqs = [tf.reduce_mean(lambda_phys * tf.square(eq)) for eq in equations]
             loss_phys = tf.add_n(loss_eqs)
 
+
         # Calculate gradients of data part
-        gradients_data = tape.gradient(loss_data,
-                    self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+        gradients_data = tape.gradient(
+            loss_data,
+            self.model.trainable_variables,
+            unconnected_gradients=tf.UnconnectedGradients.ZERO,
+        )
 
         # Calculate gradients of physics part
-        gradients_phys = tape.gradient(loss_phys,
-                    self.model.trainable_variables,
-                    unconnected_gradients=tf.UnconnectedGradients.ZERO)
+        gradients_phys = tape.gradient(
+            loss_phys,
+            self.model.trainable_variables,
+            unconnected_gradients=tf.UnconnectedGradients.ZERO,
+        )
 
         # Delete tape
         del tape
@@ -525,103 +556,82 @@ class PhysicsInformedNN:
         if alpha > 0.0:
             mean_grad_data = get_mean_grad(gradients_data, self.num_trainable_vars)
             mean_grad_phys = get_mean_grad(gradients_phys, self.num_trainable_vars)
-            lhat = mean_grad_data/mean_grad_phys
-            bal_phys = (1.0-alpha)*bal_phys + alpha*lhat
+            lhat = mean_grad_data / mean_grad_phys
+            bal_phys = (1.0 - alpha) * bal_phys + alpha * lhat
 
         # Apply gradients to the total loss function
-        gradients = [g_data + bal_phys*g_phys
-                     for g_data, g_phys in zip(gradients_data, gradients_phys)]
-        self.optimizer.apply_gradients(zip(gradients,
-                    self.model.trainable_variables))
+        gradients = [
+            g_data + bal_phys * g_phys
+            for g_data, g_phys in zip(gradients_data, gradients_phys)
+        ]
+        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 
         # Save inverse constants for output
         inv_ctes = []
         if self.inverse is not None:
             for ii, inv in enumerate(self.inverse, start=1):
-                if inv['type'] == 'const':
+                if inv["type"] == "const":
                     inv_ctes.append(output[ii][0])
 
-        return (loss_data,
-                loss_phys,
-                inv_ctes,
-                bal_phys)
+        return (loss_data, loss_phys, inv_ctes, bal_phys)
 
-    def _print_status(self, ep, lu, lf,
-                     inv_ctes, alpha, verbose=False):
-        """ Print status function """
+    def _print_status(self, ep, lu, lf, inv_ctes, alpha, verbose=False):
+        """Print status function"""
 
         # Loss functions
-        output_file = open(self.dest + 'output.dat', 'a')
-        print(ep, f'{lu}', f'{lf}',
-              file=output_file)
-        output_file.close()
+        # output_file = open(self.dest + "output.dat", "a")
+        print("Epoch", ep, f"data loss {lu}", f" physics loss {lf}")
+        # output_file.close()
         if verbose:
-            print(ep, f'{lu}', f'{lf}')
+            print(ep, f"{lu}", f"{lf}")
 
         # Inverse coefficients
         if self.inverse and len(inv_ctes) > 0:
-            output_file = open(self.dest + 'inverse.dat', 'a')
-            print(ep, *[pp.numpy()[0] for pp in inv_ctes], file=output_file)
-            output_file.close()
+            # output_file = open(self.dest + "inverse.dat", "a")
+            print(ep, "inverse", *[pp.numpy()[0] for pp in inv_ctes])
+            # output_file.close()
 
         # Balance lambda with alpha
         if alpha:
-            output_file = open(self.dest + 'balance.dat', 'a')
-            print(ep, self.bal_phys.numpy(),
-                  file=output_file)
-            output_file.close()
+            # output_file = open(self.dest + "balance.dat", "a")
+            print(ep, "balance", self.bal_phys.numpy())
+            # output_file.close()
+
 
 @tf.function
 def get_mean_grad(grads, n):
-    ''' Get the mean of the absolute values of the gradient '''
+    """Get the mean of the absolute values of the gradient"""
     sum_over_layers = [tf.reduce_sum(tf.abs(gr)) for gr in grads]
-    total_sum       = tf.add_n(sum_over_layers)
-    return total_sum/n
+    total_sum = tf.add_n(sum_over_layers)
+    return total_sum / n
+
 
 @tf.function
 def get_max_grad(grads):
     max_of_layers = [tf.reduce_max(tf.abs(gr)) for gr in grads]
-    total_max       = tf.reduce_max(max_of_layers)
+    total_max = tf.reduce_max(max_of_layers)
     return total_max
+
 
 @tf.function
 def get_tr_k(grads):
     sum_over_layers = [tf.reduce_sum(tf.square(gr)) for gr in grads]
-    total_sum       = tf.add_n(sum_over_layers)
+    total_sum = tf.add_n(sum_over_layers)
     return total_sum
+
 
 def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
     idxs = []
-    total_samples = len(X)
-    
     for fi in flag_idxs:
         if random:
-            # Randomly sample without replacement, ensuring we don't ask for more samples than available
-            num_samples = min(len(fi) // batches, len(fi))
-            sl = np.random.choice(fi, num_samples, replace=False)
+            sl = np.random.choice(fi, len(fi) // batches)
             idxs.append(sl)
         else:
-            # Calculate the appropriate slice for non-random batching
             flag_size = len(fi) // batches
-            start_idx = ba * flag_size
-            end_idx = (ba + 1) * flag_size
-            
-            # Ensure we don't go out of bounds
-            if start_idx >= len(fi):
-                continue  # Skip if starting index is out of bounds
-            if end_idx > len(fi):
-                end_idx = len(fi)  # Cap end index to avoid going out of bounds
-            
-            sl = slice(start_idx, end_idx)
+            sl = slice(ba * flag_size, (ba + 1) * flag_size)
             idxs.append(fi[sl])
-    
     idxs = np.concatenate(idxs)
-    
-    # Ensure indices are within the dataset size to avoid IndexError
-    idxs = idxs[idxs < total_samples]
-
     return X[idxs], Y[idxs], ld[idxs], lf[idxs]
-
 
 
 # def get_mini_batch(X, Y, ld, lf, ba, batch_size, flag_idxs, random=True):
@@ -631,32 +641,34 @@ def get_mini_batch(X, Y, ld, lf, ba, batches, flag_idxs, random=True):
 #     idxs  = np.random.choice(fi, batch_size)
 #     return X[idxs], Y[idxs], ld[idxs], lf[idxs]
 
+
 class AdaptiveAct(keras.layers.Layer):
-    """ Adaptive activation function """
+    """Adaptive activation function"""
+
     def __init__(self, activation=keras.activations.tanh, **kwargs):
         super().__init__(**kwargs)
         self.activation = activation
 
     def build(self, batch_input_shape):
-        ini = keras.initializers.Constant(value=1./10)
-        self.a = self.add_weight(name='activation',
-                                 initializer=ini,
-                                 shape=[1])
+        ini = keras.initializers.Constant(value=1.0 / 10)
+        self.a = self.add_weight(name="activation", initializer=ini, shape=[1])
         super().build(batch_input_shape)
 
     def call(self, X):
-        aux = tf.multiply(10.0,  self.a)
+        aux = tf.multiply(10.0, self.a)
         return self.activation(tf.multiply(aux, X))
 
     def compute_output_shape(self, batch_input_shape):
         return batch_input_shape
 
+
 class SirenAct(keras.layers.Layer):
-    """ Siren activation function """
+    """Siren activation function"""
+
     def __init__(self, activation=tf.math.sin, omega0=30.0, **kwargs):
         super().__init__(**kwargs)
         self.activation = activation
-        self.omega0     = omega0
+        self.omega0 = omega0
 
     def build(self, batch_input_shape):
         super().build(batch_input_shape)
@@ -666,3 +678,5 @@ class SirenAct(keras.layers.Layer):
 
     def compute_output_shape(self, batch_input_shape):
         return batch_input_shape
+
+
