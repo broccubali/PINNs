@@ -118,7 +118,7 @@ path_load = "/home/shusrith/projects/blind-eyes/PredefinedNoisePDE/u,x,t/"
 with open(path_load + "/3_0.pkl", "rb") as file_to_read:
     loaded_dictionary = pickle.load(file_to_read)
 
-u = loaded_dictionary["u_noisy"]
+u = loaded_dictionary["u"]
 x = loaded_dictionary["x"]
 t = loaded_dictionary["t"]
 

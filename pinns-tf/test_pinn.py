@@ -49,9 +49,9 @@ def some_eqs(model, coords, eq_params):
 # x_positions = np.linspace(0, 1, 1024)  # Adjust the range as needed
 # time_steps = np.linspace(0, 1, 101)  # Adjust the range as needed
 path_load = "/home/shusrith/projects/blind-eyes/PredefinedNoisePDE/u,x,t/"
-file_to_read = open(path_load + "/2_0.pkl", "rb")
+file_to_read = open(path_load + "/3_0.pkl", "rb")
 loaded_dictionary = pickle.load(file_to_read)
-u = loaded_dictionary["u"]
+u = loaded_dictionary["u_noisy"]
 x = loaded_dictionary["x"]
 t = loaded_dictionary["t"]
 # Create meshgrid
