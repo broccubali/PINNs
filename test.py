@@ -6,6 +6,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 import pickle
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 # Load the training data from the .pkl file
 path_load = "/home/shusrith/projects/blind-eyes/PredefinedNoisePDE/u,x,t/"
@@ -13,20 +15,12 @@ file_to_read = open(path_load + "3_0.pkl", "rb")
 loaded_dictionary = pickle.load(file_to_read)
 file_to_read.close()
 
-u = loaded_dictionary["u_noisy"]
-x = loaded_dictionary["x"]
-t = loaded_dictionary["t"]
+u_noisy = loaded_dictionary["u_noisy"]
+u = loaded_dictionary["u"]
 
-# Create meshgrid
-T, X = np.meshgrid(t, x, indexing="ij")
-print(T.shape, X.shape)
 
-# Flatten and combine
-X_flat = X.flatten().reshape(-1, 1)
-T_flat = T.flatten().reshape(-1, 1)
-input_data = np.hstack((X_flat, T_flat)).astype(np.float32)  # Convert to float32
-
-# Flatten PDE values
+# Flatten the data
+input_data = u_noisy.flatten().reshape(-1, 1).astype(np.float32)  # Convert to float32
 output_data = u.flatten().reshape(-1, 1).astype(np.float32)  # Convert to float32
 
 # Convert to PyTorch tensors
@@ -52,10 +46,10 @@ print("Trainloader size:", len(trainloader.dataset))
 print("Testloader size:", len(testloader.dataset))
 
 # Define model
-model = KAN([2, 64, 1])  # Adjust input and output sizes as needed
+model = KAN([3, 32, 64, 1])  # Adjust input and output sizes as needed
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
-
+print(model)
 # Define optimizer
 optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
@@ -99,31 +93,53 @@ file_to_read = open(path_load + "3_1.pkl", "rb")
 loaded_dictionary = pickle.load(file_to_read)
 file_to_read.close()
 
-u_new = loaded_dictionary["u_noisy"]
-x_new = loaded_dictionary["x"]
+u_noisy_new = loaded_dictionary["u_noisy"]
+u_new = loaded_dictionary["u"]
+x = loaded_dictionary["x"]
 t_new = loaded_dictionary["t"]
 
-# Create meshgrid
-T_new, X_new = np.meshgrid(t_new, x_new, indexing="ij")
-print(T_new.shape, X_new.shape)
-
-# Flatten and combine
-X_flat_new = X_new.flatten().reshape(-1, 1)
-T_flat_new = T_new.flatten().reshape(-1, 1)
-input_data_new = np.hstack((X_flat_new, T_flat_new)).astype(
-    np.float32
+# Flatten the new data
+input_data_new = (
+    u_noisy_new.flatten().reshape(-1, 1).astype(np.float32)
+)  # Convert to float32
+output_data_new = (
+    u_new.flatten().reshape(-1, 1).astype(np.float32)
 )  # Convert to float32
 
 # Convert to PyTorch tensors
 X_tensor_new = torch.tensor(input_data_new).to(device)
+Y_tensor_new = torch.tensor(output_data_new).to(device)
 
 # Make predictions
 model.eval()
 with torch.no_grad():
     predictions = model(X_tensor_new)
 
+# Calculate loss on predictions
+prediction_loss = criterion(predictions, Y_tensor_new).item()
+
+# Print the prediction loss
+print(f"Prediction Loss: {prediction_loss}")
+
 # Convert predictions to numpy array and reshape to original shape
-predictions = predictions.cpu().numpy().reshape(T_new.shape)
+predictions = predictions.cpu().numpy().reshape(u_noisy_new.shape)
 
 # Print or save the predictions as needed
-print(predictions)
+fig, ax = plt.subplots()
+(line,) = ax.plot(x, predictions[0])
+
+
+def update(frame):
+    line.set_ydata(predictions[frame])
+    ax.set_title(f"Time step {frame}")
+    return (line,)
+
+
+# Create animation
+ani = animation.FuncAnimation(
+    fig, update, frames=predictions.shape[0], blit=True
+)
+
+# Save as GIF
+gif_path = "pls.gif"
+ani.save(gif_path, writer="imagemagick", fps=10)
