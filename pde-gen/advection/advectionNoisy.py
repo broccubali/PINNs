@@ -6,8 +6,6 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from jax import device_put
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 
 # Configuration values
 save_path = "data/"
