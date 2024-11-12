@@ -26,7 +26,7 @@ class PINN(nn.Module):
         return u
 
 
-def residual_loss(model, x, t):
+def residual_loss(model, x, t, nu):
     x.requires_grad_(True)
     t.requires_grad_(True)
 
@@ -40,11 +40,8 @@ def residual_loss(model, x, t):
     u_xx = torch.autograd.grad(
         u_x, x, grad_outputs=torch.ones_like(u_x), retain_graph=True, create_graph=True
     )[0]
-    u_xxx = torch.autograd.grad(
-        u_xx, x, grad_outputs=torch.ones_like(u_xx), create_graph=True
-    )[0]
 
-    f = u_t + 6 * u * u_x + u_xxx
+    f = u_t + u * u_x - nu * u_xx
     return torch.mean(f**2)
 
 
@@ -69,14 +66,14 @@ def data_loss(model, x_data, t_data, u_data):
     return torch.mean((u_pred - u_data) ** 2)
 
 
-def train_pinn(model, optimizer, x_res, t_res, x_data, t_data, u_data, epochs):
+def train_pinn(model, optimizer, x_res, t_res, x_data, t_data, u_data, nu, epochs):
     model.to(device)
     x_res, t_res = x_res.to(device), t_res.to(device)
     x_data, t_data, u_data = x_data.to(device), t_data.to(device), u_data.to(device)
 
     for epoch in range(epochs):
         optimizer.zero_grad()
-        res_loss = residual_loss(model, x_res, t_res)
+        res_loss = residual_loss(model, x_res, t_res, nu)
         en_loss = energy_loss(model, x_res, t_res)
         d_loss = data_loss(model, x_data, t_data, u_data)
         loss = res_loss + en_loss + d_loss
@@ -111,17 +108,22 @@ def normalized_mse(predicted, true):
     )
 
 
+# Define the viscosity coefficient for Burgers' equation
+nu = 0.01
+
 model = PINN()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-path_load = "/home/shusrith/projects/blind-eyes/PredefinedNoisePDE/u,x,t/"
-with open(path_load + "/3_0.pkl", "rb") as file_to_read:
-    loaded_dictionary = pickle.load(file_to_read)
+# path_load = "/home/shusrith/projects/blind-eyes/PredefinedNoisePDE/u,x,t/"
+# with open(path_load + "/3_0.pkl", "rb") as file_to_read:
+#     loaded_dictionary = pickle.load(file_to_read)
+u = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/burgerNoisy.npy")
 
-u = loaded_dictionary["u"]
-x = loaded_dictionary["x"]
-t = loaded_dictionary["t"]
-
+# u = loaded_dictionary["u"]
+# x = loaded_dictionary
+# t = loaded_dictionary["t"]
+x = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/x_coordinate.npy")
+t = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/t_coordinate.npy")[:-1]
 X, T = np.meshgrid(x, t)
 
 x_data = torch.tensor(X.flatten(), dtype=torch.float32).view(-1, 1)
@@ -133,15 +135,19 @@ x_res = torch.rand(N_res, 1) * 2 - 1
 t_res = torch.rand(N_res, 1) * 2 - 1
 
 final_loss = train_pinn(
-    model, optimizer, x_res, t_res, x_data, t_data, u_data, epochs=1000
+    model, optimizer, x_res, t_res, x_data, t_data, u_data, nu, epochs=1000
 )
 
-with open(path_load + "/3_1.pkl", "rb") as file_to_read:
-    loaded_dictionary = pickle.load(file_to_read)
+# with open(path_load + "/3_1.pkl", "rb") as file_to_read:
+#     loaded_dictionary = pickle.load(file_to_read)
 
-u_test = loaded_dictionary["u"]
-x_test = loaded_dictionary["x"]
-t_test = loaded_dictionary["t"]
+# u_test = loaded_dictionary["u"]
+# x_test = loaded_dictionary["x"]
+# t_test = loaded_dictionary["t"]
+
+u_test = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/burgerClean.npy")
+x_test = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/x_coordinate.npy")
+t_test = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/t_coordinate.npy")
 
 X_test, T_test = np.meshgrid(x_test, t_test)
 
@@ -160,11 +166,17 @@ u_pred = predict(model, x_data_test, t_data_test)
 u_pred = u_pred.cpu().detach()
 
 plt.figure(figsize=(10, 6))
-plt.imshow(u_pred, extent=[-1, 1, 0, 1], origin="lower", aspect="auto", cmap="viridis")
+plt.imshow(
+    u_pred.reshape(X_test.shape),
+    extent=[-1, 1, 0, 1],
+    origin="lower",
+    aspect="auto",
+    cmap="viridis",
+)
 plt.colorbar(label="Predicted u(x, t)")
 plt.xlabel("x")
 plt.ylabel("t")
-plt.title("Predicted Solution of KdV Equation with PINN")
+plt.title("Predicted Solution of Burgers' Equation with PINN")
 plt.show()
 
 mae_loss = mean_absolute_error(u_pred, u_data_test.cpu())
