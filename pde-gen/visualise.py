@@ -40,6 +40,6 @@ def visualize_burgers(path, param=None):
     ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
 
     writer = animation.PillowWriter(fps=15, bitrate=1800)
-    ani.save("gifs/diffClean.gif", writer=writer)
+    ani.save("gifs/diffNoisy.gif", writer=writer)
 
-visualize_burgers("data/ReacDiff.npy")
+visualize_burgers("data/ReacDiffNoisy.npy")
