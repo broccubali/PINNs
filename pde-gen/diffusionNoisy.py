@@ -52,7 +52,7 @@ def bc(u, dx, Ncell, mode="periodic"):
         _u = _u.at[-1].set(u[-4])  # right hand side
 
     # Add noise to the boundary condition
-    _u = add_gaussian_noise(_u, mean=0.0, std=noise_level)
+    # _u = add_gaussian_noise(_u, mean=0.0, std=noise_level)
     return _u
 
 
