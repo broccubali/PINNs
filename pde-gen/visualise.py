@@ -18,7 +18,7 @@ def visualize_burgers(path, param=None):
     param: PDE parameter of the data shard to be visualized
     """
 
-    xcrd = np.load("data/x_coordinate_adv.npy")[:-1]
+    xcrd = np.load("data/x_coordinate_adv.npy")
     # print(xcrd.shape)
     data = np.load(path)
     # Initialize plot
@@ -40,6 +40,6 @@ def visualize_burgers(path, param=None):
     ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
 
     writer = animation.PillowWriter(fps=15, bitrate=1800)
-    ani.save("gifs/burgerNoisy.gif", writer=writer)
+    ani.save("gifs/AdvectionNoisy.gif", writer=writer)
 
-visualize_burgers("data/burgerNoisy.npy")
+visualize_burgers("data/AdvectionNoisy.npy")
