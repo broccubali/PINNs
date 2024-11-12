@@ -18,7 +18,6 @@ xR = 1.0
 beta = 1.0
 if_show = 1
 init_mode = "sin"
-noise_level = 0.1  # Noise level for initial condition, boundary condition, and equation
 
 
 def main() -> None:
@@ -44,7 +43,7 @@ def main() -> None:
         while t < fin_time:
             print(f"save data at t = {t:.3f}")
             u = set_function(xc, t, beta)
-            u += noise_level * np.random.randn(*u.shape)  # Add noise to the equation
+            u += np.random.normal(0.1, 0.1, size=u.shape)  # Add noise to the equation
             uu = uu.at[i_save].set(u)
             t += dt_save
             i_save += 1
@@ -57,8 +56,8 @@ def main() -> None:
     @jax.jit
     def set_function(x, t, beta):
         u = jnp.sin(2.0 * jnp.pi * (x - beta * t))
-        u += noise_level * np.random.randn(
-            *u.shape
+        u += np.random.normal(
+            0.1, 0.1, size=u.shape
         )  # Add noise to the initial condition
         return u
 

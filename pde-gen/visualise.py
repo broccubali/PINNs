@@ -18,7 +18,7 @@ def visualize_burgers(path, param=None):
     param: PDE parameter of the data shard to be visualized
     """
 
-    xcrd = np.load("data/x_coordinate_adv.npy")
+    xcrd = np.load("data/x_coordinate_adv.npy")[:-1]
     # print(xcrd.shape)
     data = np.load(path)
     # Initialize plot
