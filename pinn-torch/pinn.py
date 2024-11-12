@@ -147,7 +147,7 @@ final_loss = train_pinn(
 
 u_test = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/burgerClean.npy")
 x_test = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/x_coordinate.npy")
-t_test = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/t_coordinate.npy")
+t_test = np.load("/home/shusrith/projects/blind-eyes/PINNs/pde-gen/data/t_coordinate.npy")[:-1]
 
 X_test, T_test = np.meshgrid(x_test, t_test)
 
