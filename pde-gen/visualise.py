@@ -40,6 +40,6 @@ def visualize_burgers(path, param=None):
     ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
 
     writer = animation.PillowWriter(fps=15, bitrate=1800)
-    ani.save("pde-gen/burgers/gifs/burgerNoisy.gif", writer=writer)
+    ani.save("pde-gen/burgers/gifs/burgerSkewedNormal.gif", writer=writer)
 
-visualize_burgers("pde-gen/burgers/data/burgerNoisy.npy")
+visualize_burgers("pde-gen/burgers/data/burgerSkewedNormal.npy")
