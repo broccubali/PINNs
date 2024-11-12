@@ -6,6 +6,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from jax import device_put
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 
 # Configuration values
 save_path = "data/"
@@ -18,6 +20,13 @@ xR = 1.0
 beta = 1.0
 if_show = 1
 init_mode = "sin"
+noise_level = 0.1  # Noise level for initial condition, boundary condition, and equation
+
+
+def add_gaussian_noise(u, mean=0.5, std=0.1):
+    noise = np.random.normal(mean, std, size=u.shape)
+    return u + noise
+
 
 
 def main() -> None:
@@ -43,7 +52,7 @@ def main() -> None:
         while t < fin_time:
             print(f"save data at t = {t:.3f}")
             u = set_function(xc, t, beta)
-            u += np.random.normal(0.1, 0.1, size=u.shape)  # Add noise to the equation
+            u = add_gaussian_noise(u)
             uu = uu.at[i_save].set(u)
             t += dt_save
             i_save += 1
@@ -56,9 +65,7 @@ def main() -> None:
     @jax.jit
     def set_function(x, t, beta):
         u = jnp.sin(2.0 * jnp.pi * (x - beta * t))
-        u += np.random.normal(
-            0.1, 0.1, size=u.shape
-        )  # Add noise to the initial condition
+        u = add_gaussian_noise(u)  # Add Gaussian noise to the initial condition
         return u
 
     u = set_function(xc, t=0, beta=beta)
