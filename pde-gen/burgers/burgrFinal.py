@@ -10,10 +10,8 @@ from jax import device_put, lax
 
 import numpy as np
 import matplotlib.pyplot as plt
-
+import h5py
 from scipy.stats import skewnorm
-
-sys.path.append("..")
 
 
 def _pass(carry):
@@ -110,41 +108,51 @@ def limiting(u, Ncell, if_second_order):
     return uL, uR
 
 
-def main() -> None:
-    # Configuration values
-    save_path = "."
-    dt_save = 0.01
-    ini_time = 0.0
-    fin_time = 2.0
-    nx = 1024
-    xL = -1.0
-    xR = 1.0
-    epsilon = 1.0e-2
-    u0 = 1.0
-    du = 0.1
-    CFL = 4.0e-1
-    if_second_order = 1.0
-    show_steps = 100
-    init_mode = "possin"
-    noise_level = np.random.uniform(0.1, 0.5)
-    equation_noise_level = np.random.uniform(0.01, 0.05)
+dt_save = 0.01
+ini_time = 0.0
+fin_time = 2.0
+nx = 1024
+xL = -1.0
+xR = 1.0
+if_second_order = 1.0
+show_steps = 100
 
-    # Basic parameters
+dx = (xR - xL) / nx
+xe = jnp.linspace(xL, xR, nx + 1)
+xc = xe[:-1] + 0.5 * dx
+it_tot = ceil((fin_time - ini_time) / dt_save) + 1
+tc = jnp.arange(it_tot + 1) * dt_save
+
+with h5py.File("simulation_data.h5", "w") as g:
+    f = g.create_group("coords")
+    f.create_dataset("x-coordinates", data=xc)
+    f.create_dataset("t-coordinates", data=tc)
+    g.close()
+
+
+def gen(path) -> None:
+    epsilon = np.random.uniform(1.0e-4, 1.0e-1)
+    u0 = np.random.uniform(0.5, 2.0)
+    du = np.random.uniform(0.0, 0.5)
+    CFL = np.random.uniform(0.1, 0.9)
+    init_mode = np.random.choice(["sin", "sinsin", "possin"])
+    noise_level = np.random.uniform(0.0, 0.5)
+    equation_noise_level = np.random.uniform(0.0, 0.1)
+
+    print(f"epsilon: {epsilon}")
+    print(f"u0: {u0}")
+    print(f"du: {du}")
+    print(f"CFL: {CFL}")
+    print(f"init_mode: {init_mode}")
+    print(f"noise_level: {noise_level}")
+    print(f"equation_noise_level: {equation_noise_level}")
+
     pi_inv = 1.0 / jnp.pi
     dx = (xR - xL) / nx
     dx_inv = 1.0 / dx
 
-    # Cell edge coordinate
-    xe = jnp.linspace(xL, xR, nx + 1)
-    # Cell center coordinate
-    xc = xe[:-1] + 0.5 * dx
-
-    # Time parameters
-    it_tot = ceil((fin_time - ini_time) / dt_save) + 1
-    tc = jnp.arange(it_tot + 1) * dt_save
-
     @jax.jit
-    def evolve(u):
+    def evolve(u, noise_level=0.0, equation_noise_level=0.0):
         t = ini_time
         tsave = t
         steps = 0
@@ -171,9 +179,16 @@ def main() -> None:
             carry = (u, tsave, i_save, uu)
             u, tsave, i_save, uu = lax.cond(t >= tsave, _save, _pass, carry)
 
+            # Pass noise levels to simulation_fn here
             carry = (u, t, dt, steps, tsave)
-            u, t, dt, steps, tsave = lax.fori_loop(0, show_steps, simulation_fn, carry)
-
+            u, t, dt, steps, tsave = lax.fori_loop(
+                0,
+                show_steps,
+                lambda i, carry: simulation_fn(
+                    i, carry, noise_level, equation_noise_level
+                ),
+                carry,
+            )
             return (t, tsave, steps, i_save, dt, u, uu)
 
         carry = t, tsave, steps, i_save, dt, u, uu
@@ -185,7 +200,7 @@ def main() -> None:
         return uu, t
 
     @jax.jit
-    def simulation_fn(i, carry):
+    def simulation_fn(i, carry, noise_level=0.0, equation_noise_level=0.0):
         u, t, dt, steps, tsave = carry
         dt_adv = Courant(u, dx) * CFL
         dt_dif = Courant_diff(dx, epsilon * pi_inv) * CFL
@@ -193,10 +208,8 @@ def main() -> None:
 
         def _update(carry):
             u, dt = carry
-            # Predictor step for calculating t+dt/2-th time step
-            u_tmp = update(u, u, dt * 0.5)
-            # Update using flux at t+dt/2-th time step
-            u = update(u, u_tmp, dt)
+            u_tmp = update(u, u, dt * 0.5, noise_level, equation_noise_level)
+            u = update(u, u_tmp, dt, noise_level, equation_noise_level)
             return u, dt
 
         carry = u, dt
@@ -207,14 +220,14 @@ def main() -> None:
         return u, t, dt, steps, tsave
 
     @jax.jit
-    def update(u, u_tmp, dt):
-        f = flux(u_tmp)
+    def update(u, u_tmp, dt, noise_level=0.0, equation_noise_level=0.0):
+        f = flux(u_tmp, noise_level)
         noise = generate_noise(f.shape, equation_noise_level)
         f = f + noise  # Add noise to the flux
         u -= dt * dx_inv * (f[1 : nx + 1] - f[0:nx])
         return u
 
-    def flux(u):
+    def flux(u, noise_level=0.0):
         _u, _u_no_noise = bc(
             u, dx, Ncell=nx, noise_level=noise_level, retNoise=True
         )  # index 2 for _U is equivalent with index 0 for u
@@ -235,7 +248,6 @@ def main() -> None:
 
     # Initialize the solution without noise
     u = init(xc=xc, mode=init_mode, u0=u0, du=du)
-    jnp.save("data/initial_condition.npy", u)
 
     # Add noise to the initial condition
     noise = generate_noise(u.shape, noise_level)
@@ -248,21 +260,31 @@ def main() -> None:
 
     # Evolve the solution with noise
     u_noisy = device_put(u_noisy)  # Putting variables in GPU (not necessary??)
-    uu_noisy, t_noisy = evolve(u_noisy)
+    uu_noisy, t_noisy = evolve(
+        u_noisy, noise_level=noise_level, equation_noise_level=equation_noise_level
+    )
     print(f"final time for noisy solution is: {t_noisy:.3f}")
 
     # Save boundary condition without noise
     _, boundary_condition_no_noise = bc(
         u, dx, Ncell=nx, noise_level=noise_level, retNoise=True
     )
-    jnp.save("data/boundary_condition_no_noise.npy", boundary_condition_no_noise)
+    with h5py.File("simulation_data.h5", "a") as g:
+        f = g.create_group(f"{path}")
+        f.create_dataset("epsilon", data=epsilon)
+        f.create_dataset("u0", data=u0)
+        f.create_dataset("du", data=du)
+        f.create_dataset("CFL", data=CFL)
+        f.create_dataset("init_mode", data=np.string_(init_mode))
+        f.create_dataset("noise_level", data=noise_level)
+        f.create_dataset("equation_noise_level", data=equation_noise_level)
+        f.create_dataset("initial_condition", data=u)
+        f.create_dataset("boundary_condition", data=boundary_condition_no_noise)
+        f.create_dataset("clean", data=uu_clean)
+        f.create_dataset("noisy", data=uu_noisy)
+        g.close()
 
-    print("data saving...")
-    jnp.save("data/burgerClean.npy", uu_clean)
-    jnp.save("data/burgerNoisy.npy", uu_noisy)
-    jnp.save("data/x_coordinate.npy", xc)
-    jnp.save("data/t_coordinate.npy", tc)
 
-
-if __name__ == "__main__":
-    main()
+for i in range(1000):
+    print(f"Running simulation {i + 1}/100")
+    gen(i)
