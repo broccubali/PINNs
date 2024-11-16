@@ -23,7 +23,6 @@ def animate(i):
     return (line,)
 
 
-# Create the animation
 ani = animation.FuncAnimation(fig, animate, frames=a.shape[1], interval=50, blit=True)
 
 # Save the animation as a GIF
