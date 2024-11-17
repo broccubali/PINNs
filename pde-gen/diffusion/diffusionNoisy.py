@@ -7,8 +7,10 @@ import jax
 import jax.numpy as jnp
 from jax import device_put, lax
 
+from scipy.stats import skewnorm
+
 # Configuration values
-save_path = "data/"
+save_path = ""
 dt_save = 0.01
 ini_time = 0.0
 fin_time = 1.0
@@ -26,6 +28,14 @@ noise_level = 0.1  # Noise level for initial condition, boundary condition, and 
 
 def add_gaussian_noise(u, mean=0.0, std=0.1):
     noise = np.random.normal(mean, std, size=u.shape)
+    return u + noise
+
+def add_exponential_noise(u, scale=-4):
+    noise = np.random.exponential(scale, size=u.shape)
+    return u + noise
+
+def add_skewed_normal_noise(u, a=0, mean=0.0, std=0.1):
+    noise = skewnorm.rvs(a, loc=mean, scale=std, size=u.shape)
     return u + noise
 
 
@@ -52,7 +62,7 @@ def bc(u, dx, Ncell, mode="periodic"):
         _u = _u.at[-1].set(u[-4])  # right hand side
 
     # Add noise to the boundary condition
-    # _u = add_gaussian_noise(_u, mean=0.0, std=noise_level)
+    # _u = add_skewed_normal_noise(_u, a=-1, mean=0.0, std=noise_level)
     return _u
 
 
@@ -78,7 +88,7 @@ def init(xc, mode="sin", u0=1.0, du=0.1):
         u = u0 * jnp.abs(jnp.sin((xc + 1.0) * jnp.pi))
 
     # Add noise to the initial condition
-    u = add_gaussian_noise(u, mean=0.0, std=noise_level)
+    u = add_skewed_normal_noise(u, a=-1.0, mean=0.0, std=noise_level)
     return u
 
 
@@ -121,7 +131,7 @@ def main() -> None:
             u, t, dt, steps, tsave = lax.fori_loop(0, show_steps, simulation_fn, carry)
 
             # Add noise to the equation
-            u = add_gaussian_noise(u, mean=0.0, std=noise_level)
+            u = add_skewed_normal_noise(u, a=-2, mean=0.0, std=noise_level)
 
         tm_fin = time.time()
         print(f"total elapsed time is {tm_fin - tm_ini} sec")
@@ -180,11 +190,11 @@ def main() -> None:
 
     print("data saving...")
     jnp.save(
-        save_path + "ReacDiffNoisy",
+        save_path + "pde-gen/diffusion/data/ReacDiffNoisy.npy",
         uu,
     )
-    jnp.save(save_path + "x_coordinate_diff", xc)
-    jnp.save(save_path + "t_coordinate_diff", tc)
+    jnp.save(save_path + "pde-gen/diffusion/data/x_coordinate_diff.npy", xc)
+    jnp.save(save_path + "pde-gen/diffusion/data/t_coordinate_diff.npy", tc)
 
 
 if __name__ == "__main__":
