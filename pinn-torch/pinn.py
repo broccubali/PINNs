@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
+print(device)
 class PINN(nn.Module):
     def __init__(self):
         super(PINN, self).__init__()

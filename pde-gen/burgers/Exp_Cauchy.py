@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from math import ceil
-
+import numpy as np
 import jax
 import jax.numpy as jnp
 from jax import device_put, lax
@@ -50,23 +50,33 @@ def Courant_diff(dx, epsilon=1.0e-3):
     stability_dif = 0.5 * dx**2 / (epsilon + 1.0e-8)
     return stability_dif
 
+def generate_combined_exponential_cauchy(size, exp_scale=1.25, cauchy_scale=1.0, cauchy_weight=0.3, noise_level=1.0):
+    exponential_noise = np.random.exponential(scale=exp_scale, size=size)
+    cauchy_noise = np.random.standard_cauchy(size=size) * cauchy_scale * cauchy_weight
+    combined_noise = noise_level * (exponential_noise + cauchy_noise)
+    return combined_noise
 
-def bc(u, dx, Ncell, mode="periodic"):
+def bc(u, dx, Ncell, mode="periodic", noise_level=0.0, exp_scale = 1.25, cauchy_scale = 1.0, cauchy_weight = 0.3):
     _u = jnp.zeros(Ncell + 4)  # because of 2nd-order precision in space
     _u = _u.at[2 : Ncell + 2].set(u)
+    noise = generate_combined_exponential_cauchy(
+        size=_u.shape, exp_scale=exp_scale, cauchy_scale=cauchy_scale, cauchy_weight=cauchy_weight, noise_level=noise_level
+    )    
     if mode == "periodic":  # periodic boundary condition
-        _u = _u.at[0:2].set(u[-2:])  # left hand side
-        _u = _u.at[Ncell + 2 : Ncell + 4].set(u[0:2])  # right hand side
+        _u = _u.at[0:2].set(u[-2:] + noise[0:2])  # left hand side
+        _u = _u.at[Ncell + 2 : Ncell + 4].set(
+            u[0:2] + noise[Ncell + 2 : Ncell + 4]
+        )  # right hand side
     elif mode == "reflection":
-        _u = _u.at[0].set(-u[3])  # left hand side
-        _u = _u.at[1].set(-u[2])  # left hand side
-        _u = _u.at[-2].set(-u[-3])  # right hand side
-        _u = _u.at[-1].set(-u[-4])  # right hand side
+        _u = _u.at[0].set(-u[3] + noise[0])  # left hand side
+        _u = _u.at[1].set(-u[2] + noise[1])  # left hand side
+        _u = _u.at[-2].set(-u[-3] + noise[-2])  # right hand side
+        _u = _u.at[-1].set(-u[-4] + noise[-1])  # right hand side
     elif mode == "copy":
-        _u = _u.at[0].set(u[3])  # left hand side
-        _u = _u.at[1].set(u[2])  # left hand side
-        _u = _u.at[-2].set(u[-3])  # right hand side
-        _u = _u.at[-1].set(u[-4])  # right hand side
+        _u = _u.at[0].set(u[3] + noise[0])  # left hand side
+        _u = _u.at[1].set(u[2] + noise[1])  # left hand side
+        _u = _u.at[-2].set(u[-3] + noise[-2])  # right hand side
+        _u = _u.at[-1].set(u[-4] + noise[-1])  # right hand side
 
     return _u
 
@@ -92,7 +102,7 @@ def limiting(u, Ncell, if_second_order):
 
 def main() -> None:
     # Configuration values
-    save_path = "/content"
+    save_path = "."
     dt_save = 0.01
     ini_time = 0.0
     fin_time = 2.0
@@ -106,6 +116,8 @@ def main() -> None:
     if_second_order = 1.0
     show_steps = 100
     init_mode = "sin"
+    noise_level = 0.1  # Noise level for initial and boundary conditions
+    equation_noise_level = 0.01  # Noise level for the equation
 
     # Basic parameters
     pi_inv = 1.0 / jnp.pi
@@ -185,13 +197,17 @@ def main() -> None:
         return u, t, dt, steps, tsave
 
     @jax.jit
-    def update(u, u_tmp, dt):
+    def update(u, u_tmp, dt, exp_scale = 1.25, cauchy_scale = 1.0, cauchy_weight = 0.3):
         f = flux(u_tmp)
+        noise = generate_combined_exponential_cauchy(f.shape, exp_scale, cauchy_scale, cauchy_weight, equation_noise_level)
+        f = f + noise  # Add noise to the flux
         u -= dt * dx_inv * (f[1 : nx + 1] - f[0:nx])
         return u
 
     def flux(u):
-        _u = bc(u, dx, Ncell=nx)  # index 2 for _U is equivalent with index 0 for u
+        _u = bc(
+            u, dx, Ncell=nx, noise_level=noise_level
+        )  # index 2 for _U is equivalent with index 0 for u
         uL, uR = limiting(_u, nx, if_second_order=if_second_order)
         fL = 0.5 * uL**2
         fR = 0.5 * uR**2
@@ -207,15 +223,23 @@ def main() -> None:
         f_upwd += -epsilon * pi_inv * (_u[2 : nx + 3] - _u[1 : nx + 2]) * dx_inv
         return f_upwd
 
+    # Initialize the solution with noise
     u = init(xc=xc, mode=init_mode, u0=u0, du=du)
-    u = device_put(u)  # Putting variables in GPU (not necessary??)
+    combined_noise = generate_combined_exponential_cauchy(
+    size=u.shape, exp_scale=1.25, cauchy_scale=1.0, cauchy_weight=0.3, noise_level=noise_level
+    )
+    u = u + combined_noise
+    u = device_put(u)
     uu, t = evolve(u)
     print(f"final time is: {t:.3f}")
 
     print("data saving...")
-    jnp.save("pde-gen/burgers/data/burgerClean.npy", uu)
-    jnp.save("pde-gen/burgers/data/x_coordinate", xc)
-    jnp.save("pde-gen/burgers/data/t_coordinate", tc)
+    jnp.save(
+        "pde-gen/burgers/data/burgerCombo.npy",
+        uu
+    )
+    jnp.save("pde-gen/burgers/data/x_coordinate.npy", xc)
+    jnp.save("pde-gen/burgers/data/t_coordinate.npy", tc)
 
 
 if __name__ == "__main__":

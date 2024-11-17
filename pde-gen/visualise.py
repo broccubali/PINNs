@@ -18,7 +18,7 @@ def visualize_burgers(path, param=None):
     param: PDE parameter of the data shard to be visualized
     """
 
-    xcrd = np.load("pde-gen/diffusion/data/x_coordinate_diff.npy")
+    xcrd = np.load("burgers/data/x_coordinate.npy")
     # print(xcrd.shape)
     data = np.load(path)
     # Initialize plot
@@ -40,6 +40,6 @@ def visualize_burgers(path, param=None):
     ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
 
     writer = animation.PillowWriter(fps=15, bitrate=1800)
-    ani.save("pde-gen/diffusion/gifs/diffNoisy.gif", writer=writer)
+    ani.save("burgers/gifs/burgerCombo.gif", writer=writer)
 
-visualize_burgers("pde-gen/diffusion/data/ReacDiffNoisy.npy")
+visualize_burgers("burgers/data/burgerNoisy.npy")
