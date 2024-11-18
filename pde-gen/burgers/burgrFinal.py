@@ -62,7 +62,7 @@ def generate_noise(shape, noise_level):
 
 
 def bc(u, dx, Ncell, mode="periodic", noise_level=0.0, retNoise=False):
-    _u = jnp.zeros(Ncell + 4)  # because of 2nd-order precision in space
+    _u = jnp.zeros(Ncell + 4) 
     _u = _u.at[2 : Ncell + 2].set(u)
     noise = generate_noise(_u.shape, noise_level)
     if retNoise:
@@ -269,6 +269,11 @@ def gen(path) -> None:
     _, boundary_condition_no_noise = bc(
         u, dx, Ncell=nx, noise_level=noise_level, retNoise=True
     )
+    # Save boundary condition with noise
+    boundary_condition_noisy, _ = bc(
+        u_noisy, dx, Ncell=nx, noise_level=noise_level, retNoise=True
+    )
+
     with h5py.File("simulation_data.h5", "a") as g:
         f = g.create_group(f"{path}")
         f.create_dataset("epsilon", data=epsilon)
@@ -278,8 +283,10 @@ def gen(path) -> None:
         f.create_dataset("init_mode", data=np.string_(init_mode))
         f.create_dataset("noise_level", data=noise_level)
         f.create_dataset("equation_noise_level", data=equation_noise_level)
-        f.create_dataset("initial_condition", data=u)
-        f.create_dataset("boundary_condition", data=boundary_condition_no_noise)
+        f.create_dataset("initial_condition_clean", data=u)
+        f.create_dataset("initial_condition_noisy", data=u_noisy)
+        f.create_dataset("boundary_condition_clean", data=boundary_condition_no_noise)
+        f.create_dataset("boundary_condition_noisy", data=boundary_condition_noisy)
         f.create_dataset("clean", data=uu_clean)
         f.create_dataset("noisy", data=uu_noisy)
         g.close()
