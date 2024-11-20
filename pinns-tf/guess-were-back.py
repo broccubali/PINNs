@@ -5,14 +5,12 @@ import h5py
 
 
 class PINN(Model):
-    def __init__(self, layers_dims, epsilon):
+    def __init__(self, layers_dims):
         super(PINN, self).__init__()
-        self.epsilon = epsilon
-
         self.network = tf.keras.Sequential()
         for dim in layers_dims:
             self.network.add(layers.Dense(dim, activation="tanh"))
-        self.network.add(layers.Dense(1))
+        self.network.add(layers.Dense(1))  # Output scalar prediction
 
     def call(self, inputs):
         return self.network(inputs)
@@ -87,10 +85,62 @@ def train_model(
             print(f"Epoch {epoch}, Loss: {loss.numpy():.6f}")
 
 
-# Predict solution
-def predict_solution(model, x, t):
-    xt = tf.concat([x, t], axis=1)
-    return model(xt)
+def predict_solution_iterative(
+    model, x, initial_condition, boundary_condition, epsilon, n_steps
+):
+    """
+    Iteratively predict the solution over time.
+    Args:
+        model: Trained PINN model.
+        x: Spatial coordinates as a tensor.
+        initial_condition: Initial condition at t=0.
+        boundary_condition: Boundary conditions (periodic).
+        epsilon: Diffusion parameter.
+        n_steps: Number of time steps to predict.
+    Returns:
+        Array of predictions at each time step.
+    """
+    dt = 1 / n_steps  # Assume uniform time step
+    u = tf.convert_to_tensor(initial_condition, dtype=tf.float32)[
+        :, None
+    ]  # Start with IC
+    all_predictions = [u.numpy()]
+
+    for _ in range(n_steps):
+        # Prepare inputs for prediction
+        epsilon_tensor = tf.fill(
+            x.shape, tf.constant(epsilon, dtype=tf.float32)
+        )  # Constant epsilon
+        u_input = tf.concat([x, u], axis=1)  # Concatenate x and u
+        u_input = tf.concat(
+            [u_input, epsilon_tensor], axis=1
+        )  # Concatenate epsilon_tensor
+
+        # Predict next state
+        u_next = model(u_input)[:, 0]  # Remove extra dimensions
+
+        # Apply periodic boundary condition
+        u_next = apply_periodic_bc(u_next, boundary_condition)
+
+        # Store prediction and update for next step
+        all_predictions.append(u_next.numpy())
+        u = u_next[:, None]  # Update for next time step
+
+    return np.array(all_predictions)
+
+
+# Function to apply periodic boundary condition
+def apply_periodic_bc(u, boundary_condition):
+    """
+    Enforce periodic boundary conditions on the solution.
+    Args:
+        u: Solution array at a given time step.
+        boundary_condition: Precomputed boundary values.
+    Returns:
+        Solution array with periodic boundary applied.
+    """
+    u = tf.concat([u[-2:], u, u[:2]], axis=0)  # Periodic wrap
+    return u
 
 
 # Data loading function
@@ -124,19 +174,16 @@ initial_condition, boundary_condition, clean_data, du, epsilon, u0, x, t = load_
     file_name
 )
 
-# Convert data to tensors
 x = tf.convert_to_tensor(x, dtype=tf.float32)[:, None]  # x-coordinates as column vector
 t = tf.convert_to_tensor(t, dtype=tf.float32)[:, None]  # t-coordinates as column vector
 initial_condition = tf.convert_to_tensor(initial_condition, dtype=tf.float32)
 boundary_condition = tf.convert_to_tensor(boundary_condition, dtype=tf.float32)
 
-# Define model parameters
 layers_dims = [50, 50, 50]
-epochs = 10000
+epochs = 2000
 learning_rate = 1e-3
 
-# Initialize model
-model = PINN(layers_dims, epsilon)
+model = PINN(layers_dims)
 
 # Train model
 train_model(
@@ -151,15 +198,22 @@ train_model(
     learning_rate,
 )
 
+# Convert all tensors to float32
+x = tf.convert_to_tensor(x, dtype=tf.float32)[:, None]  # x-coordinates as column vector
+t = tf.convert_to_tensor(t, dtype=tf.float32)[:, None]  # t-coordinates as column vector
+initial_condition = tf.convert_to_tensor(initial_condition, dtype=tf.float32)
+boundary_condition = tf.convert_to_tensor(boundary_condition, dtype=tf.float32)
 
-# Predict the solution for the time range
-x_pred = tf.convert_to_tensor(
-    np.linspace(x.numpy().min(), x.numpy().max(), len(x))[:, None], dtype=tf.float32
+# Predict solution iteratively
+n_steps = 200
+predicted_solution = predict_solution_iterative(
+    model,
+    x=x,
+    initial_condition=initial_condition,
+    boundary_condition=boundary_condition,
+    epsilon=epsilon,
+    n_steps=n_steps,
 )
-t_pred = tf.convert_to_tensor(
-    np.linspace(t.numpy().min(), t.numpy().max(), len(t))[:, None], dtype=tf.float32
-)
-u_pred = predict_solution(model, x_pred, t_pred)
 
-# u_pred will contain the solution over the predicted time steps
-print("Solution predicted.")
+# The result is a time-series solution
+print("Predicted solution shape:", predicted_solution.shape)
