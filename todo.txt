@@ -1,0 +1,3 @@
+insert gifs for dataset-gen
+inset gifs for pinn
+insert gif for kan
