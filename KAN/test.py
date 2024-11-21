@@ -1,31 +1,48 @@
-from kan import KAN
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
-import pickle
+import h5py
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 
-# Load the training data from the .pkl file
-path_load = "/home/shusrith/projects/blind-eyes/PredefinedNoisePDE/u,x,t/"
-file_to_read = open(path_load + "3_0.pkl", "rb")
-loaded_dictionary = pickle.load(file_to_read)
-file_to_read.close()
+# Load data
+with h5py.File("/kaggle/input/burgers-noisy/simulation_data.h5", "r") as f:
+    a = list(f.keys())
+    clean = []
+    noisy = []
+    for i in a[:-1]:
+        clean.append(f[i]["clean"][:])
+        noisy.append(f[i]["noisy"][:])
 
-u_noisy = loaded_dictionary["u_noisy"]
-u = loaded_dictionary["u"]
+clean = np.array(clean)
+noisy = np.array(noisy)
+
+print("Noisy data shape:", noisy.shape)
+
+# Flatten the input data if necessary
+num_samples, height, width = noisy.shape
+noisy_flattened = noisy.reshape(num_samples, -1)
+clean_flattened = clean.reshape(num_samples, -1)
 
 
-# Flatten the data
-input_data = u_noisy.flatten().reshape(-1, 1).astype(np.float32)  # Convert to float32
-output_data = u.flatten().reshape(-1, 1).astype(np.float32)  # Convert to float32
+# Define CombinedLoss
+class CombinedLoss(nn.Module):
+    def __init__(self, alpha=0.5):
+        super(CombinedLoss, self).__init__()
+        self.alpha = alpha
+        self.mse = nn.MSELoss()
+        self.l1 = nn.L1Loss()
 
-# Convert to PyTorch tensors
-X_tensor = torch.tensor(input_data)
-Y_tensor = torch.tensor(output_data)
+    def forward(self, output, target):
+        return self.alpha * self.mse(output, target) + (1 - self.alpha) * self.l1(
+            output, target
+        )
+
+
+# Prepare data
+X_tensor = torch.tensor(noisy_flattened, dtype=torch.float32)
+Y_tensor = torch.tensor(clean_flattened, dtype=torch.float32)
 
 # Create TensorDataset
 dataset = TensorDataset(X_tensor, Y_tensor)
@@ -38,29 +55,59 @@ train_dataset, test_dataset = torch.utils.data.random_split(
 )
 
 # Create DataLoader
-trainloader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-testloader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+trainloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+testloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
 # Print the shapes to verify
 print("Trainloader size:", len(trainloader.dataset))
 print("Testloader size:", len(testloader.dataset))
 
-# Define model
-model = KAN([3, 32, 64, 1])  # Adjust input and output sizes as needed
+
+# Define the model with dropout and batch normalization
+class KANWithDropout(nn.Module):
+    def __init__(self, layers_hidden, dropout_prob=0.3):
+        super(KANWithDropout, self).__init__()
+        self.layers = nn.ModuleList()
+        for in_features, out_features in zip(layers_hidden, layers_hidden[1:]):
+            self.layers.append(
+                nn.Sequential(
+                    nn.Linear(in_features, out_features),
+                    nn.BatchNorm1d(out_features),
+                    nn.SiLU(),
+                    nn.Dropout(dropout_prob),
+                )
+            )
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
+# Adjust the input dimensions to match the data
+input_dim = noisy_flattened.shape[1]  # Flatten the input dimensions
+model = KANWithDropout([input_dim, 512, 256, 128, 64, 128, 256, 512, input_dim])
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
-print(model)
+
 # Define optimizer
 optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
-# Define learning rate scheduler
-scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.8)
+# Define ReduceLROnPlateau with patience and min_lr
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer,
+    mode="min",
+    factor=0.8,
+    patience=5,
+    min_lr=1e-6,
+    verbose=True,
+)
 
 # Define loss
-criterion = nn.MSELoss()  # Use MSELoss for regression tasks
+criterion = CombinedLoss()
 
 # Training loop
-for epoch in range(10):
+for epoch in range(100):
     # Train
     model.train()
     with tqdm(trainloader) as pbar:
@@ -84,62 +131,73 @@ for epoch in range(10):
     val_loss /= len(testloader)
 
     # Update learning rate
-    scheduler.step()
+    scheduler.step(val_loss)
 
     print(f"Epoch {epoch + 1}, Val Loss: {val_loss}")
 
-# Load the new data from the .pkl file for prediction
-file_to_read = open(path_load + "3_1.pkl", "rb")
-loaded_dictionary = pickle.load(file_to_read)
-file_to_read.close()
+# Save the model
+torch.save(model.state_dict(), "kan_model.pth")
 
-u_noisy_new = loaded_dictionary["u_noisy"]
-u_new = loaded_dictionary["u"]
-x = loaded_dictionary["x"]
-t_new = loaded_dictionary["t"]
 
-# Flatten the new data
-input_data_new = (
-    u_noisy_new.flatten().reshape(-1, 1).astype(np.float32)
-)  # Convert to float32
-output_data_new = (
-    u_new.flatten().reshape(-1, 1).astype(np.float32)
-)  # Convert to float32
+with h5py.File("/kaggle/input/burgers-noisy/simulation_data.h5", "r") as f:
+    a = f["102"]["noisy"][:]
+    b = f["102"]["clean"][:]
+    x = f["coords"]["x-coordinates"][:]
+    f.close()
+a = torch.Tensor(a).to(device)
+a = a.view(1, -1)
+a.shape
 
-# Convert to PyTorch tensors
-X_tensor_new = torch.tensor(input_data_new).to(device)
-Y_tensor_new = torch.tensor(output_data_new).to(device)
-
-# Make predictions
-model.eval()
+# Making predictions
 with torch.no_grad():
-    predictions = model(X_tensor_new)
+    u = model(a.to(device)).to("cpu")
 
-# Calculate loss on predictions
-prediction_loss = criterion(predictions, Y_tensor_new).item()
+# Convert the output to numpy array if needed
+u = u.cpu().numpy().reshape((201, 1024))
 
-# Print the prediction loss
-print(f"Prediction Loss: {prediction_loss}")
+from __future__ import annotations
 
-# Convert predictions to numpy array and reshape to original shape
-predictions = predictions.cpu().numpy().reshape(u_noisy_new.shape)
+import argparse
+from pathlib import Path
 
-# Print or save the predictions as needed
-fig, ax = plt.subplots()
-(line,) = ax.plot(x, predictions[0])
-
-
-def update(frame):
-    line.set_ydata(predictions[frame])
-    ax.set_title(f"Time step {frame}")
-    return (line,)
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import animation
+from tqdm import tqdm
 
 
-# Create animation
-ani = animation.FuncAnimation(
-    fig, update, frames=predictions.shape[0], blit=True
-)
+def visualize_burgers(xcrd, data):
+    """
+    This function animates the Burgers equation
 
-# Save as GIF
-gif_path = "pls.gif"
-ani.save(gif_path, writer="imagemagick", fps=10)
+    Args:
+    path : path to the desired file
+    param: PDE parameter of the data shard to be visualized
+    """
+
+    #     xcrd = np.load("burgers/data/x_coordinate.npy")
+    # print(xcrd.shape)
+    #     data = np.load(path)
+    # Initialize plot
+    fig, ax = plt.subplots()
+
+    # Store the plot handle at each time step in the 'ims' list
+    ims = []
+
+    for i in tqdm(range(data.shape[0])):
+        if i == 0:
+            im = ax.plot(xcrd, data[i].squeeze(), animated=True, color="blue")
+        else:
+            im = ax.plot(
+                xcrd, data[i].squeeze(), animated=True, color="blue"
+            )  # show an initial one first
+        ims.append([im[0]])
+
+    # Animate the plot
+    ani = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
+
+    writer = animation.PillowWriter(fps=15, bitrate=1800)
+    ani.save("burgerCombo.gif", writer=writer)
+
+
+visualize_burgers(x[:], u)
