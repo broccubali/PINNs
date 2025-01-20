@@ -68,7 +68,7 @@ def main() -> None:
         u = add_combined_noise(u, skewness=-2, skew_scale=0.1, exp_scale=0.09, exp_mean=0.0)
         return u
 
-    u = set_function(xc, t=0, beta=beta)
+    u = seNt_function(xc, t=0, beta=beta)
     u = device_put(u)  # putting variables in GPU (not necessary??)
     uu, t = evolve(u)
     print(f"final time is: {t:.3f}")
